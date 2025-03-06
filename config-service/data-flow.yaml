@@ -1,0 +1,85 @@
+resources:
+- name: Configuration System
+  subtitle: System Components
+  color: Navy
+  children:
+  - name: Config Server
+    subtitle: Python HTTP Server
+    color: Blue
+    icon: Networking/cloud-server.svg
+    description: Serves configuration data from an external JSON file
+    
+  - name: Client 
+    subtitle: Node - Either Cluster or Worker Node. Runs a bash script to fetch configuration information from the Config Server. Once it has the config information it will instantiate a python wrapper class
+    color: Green
+    icon: Networking/virtual-machine.svg
+    description: 
+    
+  - name: Config Data
+    subtitle: Configuration JSON
+    color: Purple
+    description: External configuration file with backend type and control plane ports. Example; {"backend_type"; "etcd", "control_plane_ports"; [100, 200, 300]}
+    icon: Networking/database.svg
+    
+  - name: Python Wrapper Class
+    subtitle: Python Wrapper. 
+    color: Teal
+    description: Wrapper class for a Node - handles both Worker and Cluster node functionality based on the configuration. This will be the class that is interacting with the contorl plane / is the control plane 
+    icon: Networking/application.svg
+    
+perspectives:
+- name: Architecture
+  relations:
+  - from: Client 
+    to: Config Server
+    label: Request Config
+    
+  - from: Config Server
+    to: Config Data
+    label: Read
+    
+  - from: Client 
+    to: Python Wrapper Class
+    label: Execute
+    description: Runs with backend type and port information
+    
+- name: Control Plane Membership
+  relations:
+  - from: Config Server
+    to: Client 
+    label: Control Plane Member
+    
+  - from: Config Data
+    to: Client
+    label: Defines Membership
+    
+  notes: |-
+    This perspective shows the client's membership in the control plane based on the configuration.
+    Client 100 is a member of the control plane according to the current configuration.
+    
+- name: Data Flow
+  relations:
+  - from: Client
+    to: Config Server
+    label: HTTP Request
+    
+  - from: Config Server
+    to: Config Data
+    label: Read JSON
+    
+  - from: Config Server
+    to: Client 
+    label: Return JSON Config
+    
+  - from: Client 
+    to: Python Wrapper Class 
+    label: Pass Type & Ports to constructor
+    
+  notes: |-
+    This perspective illustrates the data flow between components.
+    1. Client requests configuration from the Config Server
+    2. Config Server reads from the external configuration file
+    3. Config Server returns the configuration to client
+    4. Client passes backend type and control plane ports to the Processor
+    5. Processor determines node type (Worker/Cluster) based on configuration
+

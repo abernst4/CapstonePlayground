@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  config-server:
+    build: .
+    ports:
+      - "5000:5000"
+    command: python ha_server.py
+    volumes:
+      - ./config.json:/app/config.json
+    networks:
+      - app-network
+
+  client-100:
+    build: .
+    depends_on:
+      - config-server
+    command: bash -c "sleep 5 && ./client.sh 100"
+    networks:
+      - app-network
+
+  client-200:
+    build: .
+    depends_on:
+      - config-server
+    command: bash -c "sleep 5 && ./client.sh 200"
+    networks:
+      - app-network
+
+  client-400:
+    build: .
+    depends_on:
+      - config-server
+    command: bash -c "sleep 5 && ./client.sh 400"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

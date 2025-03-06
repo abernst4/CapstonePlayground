@@ -1,0 +1,4 @@
+{
+  "backend_type": "etcd",
+  "control_plane_ports": [100, 200, 300]
+}
