@@ -4,3 +4,8 @@ In order to run this you require two terminals: one for the metrics bash script 
 to get the servers set up. 
 
 Furthermore, it's best to create your own virtual environment (python3 -m venv <name of your virtual environment>) and then pip3 install the packages necessary. enjoy
+
+What is happening: 
+    - The docker compose creates 3 nodes with etcd installed and working among the 3 nodes (and between them)
+    - The metrics bash script first deletes the nodes and then puts random entries into etcd, like ram, cpu, and disk nubmers
+    - The dashboard displays the dynamic info from all etcd nodes
