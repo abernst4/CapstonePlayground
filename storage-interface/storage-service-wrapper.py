@@ -71,7 +71,7 @@ class EtcdStorage(StorageService):
     def delete(self, key: str) -> bool:
         """Delete a key. Returns True if key existed and was deleted."""
         result = self.client.delete(key)
-        return result.deleted
+        return result
     
     def get_prefix(self, prefix: str) -> Dict[str, Any]:
         """Get all keys and values with the given prefix."""
@@ -175,7 +175,7 @@ if __name__ == "__main__":
         # # Retrieve data
         # config = storage_service.get('/app/config')
         # print(f"App config: {config}")
-
+        
         while True:
             print("Enter a command:")
             print("1. Put")
@@ -219,5 +219,9 @@ if __name__ == "__main__":
     # app_init(redis_storage)
 
     # Initialize with test storage
-    test_storage = StorageFactory.create('test')
-    app_init(test_storage)
+    storage_type = input("Enter storage service (etcd/test): ")
+    if storage_type == 'etcd':
+        storage_service = StorageFactory.create('etcd', **config['etcd'])
+    else:
+        storage_service = StorageFactory.create('test')
+    app_init(storage_service)
