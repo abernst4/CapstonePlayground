@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from models.resource_usage import CurrentUsage
+    from models.resource_usage import ResourceUsage
     from models.specs import Specs
 
 
@@ -33,7 +33,7 @@ class Resources(BaseModel):
         return cls.model_validate(data)
     
     @classmethod
-    def from_two_specs(cls, total: 'Specs', used: 'CurrentUsage'):
+    def from_two_specs(cls, total: 'Specs', used: 'ResourceUsage'):
         """
         Create an Resources instance by subtracting the 'used' specs from the 'total' specs.
         Meant to represent an available resources object.

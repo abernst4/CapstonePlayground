@@ -1,68 +1,58 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 import httpx
-from models.current_usage import CurrentUsage
-from models.job_deployed import JobDeployed
-from models.resources import Resources
+from api_gateway.models.resource_usage import ResourceUsage
 from models.specs import Specs
-from models.workers_running_service import WorkersRunningService
+from models.resources import Resources
+from models.service import Service
+from storage_interface.storage_service_wrapper import EtcdStorage, StorageService
 from typing import Dict, Optional, List
 import uvicorn
-from storage_classes.etcd_implementation import EtcdClient
 import json
 import argparse
 
 app = FastAPI(title="Container Management API")
-etcd_client = None
+storage_client = None
 
-def connect_to_etcd():
-    """Connect to etcd server"""
-    global etcd_client
-    if not etcd_client:
-        etcd_client = EtcdClient()
-        etcd_client.connect(host="127.0.0.1", port=2379)
-    return etcd_client
+def get_storage_client() -> StorageService:
+    """Get or initialize storage client"""
+    global storage_client
+    if storage_client is None:
+        # EtcdStorage constructor already handles connection
+        storage_client = EtcdStorage(host="127.0.0.1", port=2379)
+    return storage_client
 
 @app.post("/api/tasks/deploy")
-async def deploy_task(job: JobDeployed):
+async def deploy_task(service: Service, storage: StorageService = Depends(get_storage_client)):
     """Deploy a new task to a worker node"""
     try:
-        # Ensure we're connected to etcd
-        if not etcd_client:
-            connect_to_etcd()
-            
         # Run scheduler to determine which workers to deploy to
-        worker_names = run_scheduler(job)
+        worker_names = run_scheduler(service, storage)
 
         for instance, worker_name in enumerate(worker_names):
-            key = job.job_id + "-" + worker_name + "-" + str(instance)
+            key = service.job_id + "-" + worker_name + "-" + str(instance)
             # Store task information in etcd
-            etcd_path = f"/workers/{worker_name}/deploy-req/{key}"
-            etcd_client.put(etcd_path, json.dumps(job))
+            storage.put(f"/workers/{worker_name}/deploy-req/{key}", service)
             
             # Also store in system services
-            etcd_client.put(f"/system_services/{job.job_id}", json.dumps(worker_names))
+            storage.put(f"/system_services/{service.job_id}", json.dumps(worker_names))
 
-        return {"status": "success", "message": f"Task {job.job_id} deployment initiated on {worker_names}"}
+        return {"status": "success", "message": f"Task {service.job_id} deployment initiated on {worker_names}"}
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/tasks/start/{task_name}")
-async def start_task(task_name: str):
+async def start_task(task_name: str, storage: StorageService = Depends(get_storage_client)):
     """Start a deployed task"""
     try:
-        # Ensure we're connected to etcd
-        if not etcd_client:
-            connect_to_etcd()
-
         # Get task keys
-        task_keys = get_task_keys(task_name)
+        task_keys = get_task_keys(task_name, storage)
 
         if not task_keys:
             raise HTTPException(status_code=404, detail=f"Task {task_name} not found on any worker")
 
         # Fetch worker IPs
-        worker_ips = get_worker_ips()
+        worker_ips = get_worker_ips(storage)
 
         # Send start command to all workers running this task
         success_count = 0
@@ -84,7 +74,7 @@ async def start_task(task_name: str):
                 print(f"Start request sent successfully to {worker_name} for task {task_name}")
 
                 # Changes status in etcd to start_req
-                etcd_path = f"/workers/{worker_name}/start_req/{task_name}"
+                storage.put(f"/workers/{worker_name}/start_req/{task_name}", task_key)
 
             except httpx.HTTPStatusError as e:
                 print(f"Error sending start request to {worker_name} for task {task_name}: {e}")
@@ -96,21 +86,17 @@ async def start_task(task_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/tasks/stop/{task_name}")
-async def stop_task(task_name: str):
+async def stop_task(task_name: str, storage: StorageService = Depends(get_storage_client)):
     """Stop a running task"""
     try:
-        # Ensure we're connected to etcd
-        if not etcd_client:
-            connect_to_etcd()
-            
         # Get workers running this task
-        task_keys = get_task_keys(task_name)
+        task_keys = get_task_keys(task_name, storage)
         
         if not task_keys:
             raise HTTPException(status_code=404, detail=f"Task {task_name} not found on any worker")
     
          # Fetch worker IPs (assuming you have a worker_ips dictionary)
-        worker_ips = get_worker_ips()  # Implement this function to fetch worker IPs
+        worker_ips = get_worker_ips(storage)  # Implement this function to fetch worker IPs
 
         # Send stop command to all workers running this task
         success_count = 0
@@ -132,7 +118,7 @@ async def stop_task(task_name: str):
                 print(f"Stop request sent successfully to {worker_name} for task {task_name}")
 
                 # Changes status in etcd to stop_req
-                etcd_path = f"/workers/{worker_name}/stop_req/{task_name}"
+                storage.put(f"/workers/{worker_name}/stop_req/{task_name}", task_key)
 
             except httpx.HTTPStatusError as e:
                 print(f"Error sending stop request to {worker_name} for task {task_name}: {e}")
@@ -143,89 +129,44 @@ async def stop_task(task_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def get_worker_ips() -> Dict[str, str]:
-    """
-    Helper function to fetch worker IPs from etcd.
-    Replace this with your actual implementation.
-    """
+#Helper functions
+def get_worker_ips(storage: StorageService) -> Dict[str, str]:
+    """Helper function to fetch worker IPs from etcd."""
     worker_ips = {}
-    values = etcd_client.get_prefix("/workers")
-    for value, metadata in values:
-        worker_name = metadata.key.decode().split('/')[2]
-        worker_ip = value.decode()  # Assuming the value stored is the IP address
-        worker_ips[worker_name] = worker_ip
+    try:
+        values = storage.get_prefix("/workers")
+        for key, value in values.items():
+            parts = key.split('/')
+            if len(parts) >= 3:
+                worker_name = parts[2]
+                worker_ips[worker_name] = value
+    except Exception as e:
+        print(f"Error fetching worker IPs: {e}")
     return worker_ips
 
-@app.get("/api/workers/{worker_name}/tasks")
-async def list_worker_tasks(worker_name: str):
-    """List all tasks for a worker"""
-    try:
-        # Ensure we're connected to etcd
-        if not etcd_client:
-            connect_to_etcd()
-            
-        tasks = etcd_client.get_prefix(f"/workers/{worker_name}/tasks")
-        task_list = {}
-        
-        for value, key in tasks:
-            task_name = key.split('/')[-1]
-            if value:
-                task_list[task_name] = json.loads(value)
-                
-        return task_list
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/tasks/{task_name}/workers")
-async def get_task_workers(task_name: str):
-    """Get all workers running a specific task"""
-    try:
-        # Ensure we're connected to etcd
-        if not etcd_client:
-            connect_to_etcd()
-            
-        workers = get_workers_running_task(task_name)
-        
-        if not workers:
-            raise HTTPException(status_code=404, detail=f"Task {task_name} not found on any worker")
-            
-        return WorkersRunningService(worker_list=workers).to_json_dict()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/workers")
-async def list_workers():
-    """List all registered workers"""
-    try:
-        # Ensure we're connected to etcd
-        if not etcd_client:
-            connect_to_etcd()
-            
-        values = etcd_client.get_prefix("/workers")
-        worker_names = list(set([val[1].split('/')[2] for val in values]))
-        
-        return {"workers": worker_names}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def get_task_keys(task_name: str) -> List[str]:
+def get_task_keys(task_name: str, storage: StorageService) -> List[str]:
     """Helper function to get all workers running a specific task"""
-    # Check system services first
-    workers = etcd_client.get(f"/system_services/{task_name}")
-    if not workers:
+    try:
+        workers_data = storage.get(f"/system_services/{task_name}")
+        if not workers_data:
+            return []
+        return workers_data
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON for task {task_name}")
         return []
-        
-    return workers
+    except Exception as e:
+        print(f"Error getting task keys: {e}")
+        return []
 
-def run_scheduler(JobDeployed:JobDeployed) -> List[str]:
+def run_scheduler(service: Service, storage: StorageService) -> List[str]:
     """Run the scheduler to determine which workers to deploy to"""
-    values = etcd_client.get_prefix("/workers")
+    values = storage.get_prefix("/workers")
     worker_names = [metadata.key.decode().split('/')[2] for _, metadata in values]
 
     workers = {}
     for worker in worker_names:
-        total_specs_val = etcd_client.get(f"/workers/{worker}/specs")[0].decode()
-        current_usage_val = etcd_client.get(f"/workers/{worker}/current_usage")
+        total_specs_val = storage.get(f"/workers/{worker}/specs")[0].decode()
+        current_usage_val = storage.get(f"/workers/{worker}/current_usage")
         total_specs = Specs.from_dict(json.loads(total_specs_val))
         if not current_usage_val or not current_usage_val[0]:
             usage_dict = {
@@ -237,7 +178,7 @@ def run_scheduler(JobDeployed:JobDeployed) -> List[str]:
             }
         else:
             usage_dict = json.loads(current_usage_val[0].decode())
-        current_usage = CurrentUsage.from_dict(usage_dict)
+        current_usage = ResourceUsage.from_dict(usage_dict)
 
         available_resources = Resources.from_two_specs(total_specs, current_usage)
         workers[worker] = available_resources
@@ -248,11 +189,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='API Service for Kubernetes-like system')
     parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind the server to')
     parser.add_argument('--port', type=int, default=8000, help='Port to bind the server to')
+    parser.add_argument('--etcd-host', type=str, default='127.0.0.1', help='Etcd host')
+    parser.add_argument('--etcd-port', type=int, default=2379, help='Etcd port')
     
     args = parser.parse_args()
-    
-    # Connect to etcd at startup
-    connect_to_etcd()
     
     # Start the server
     uvicorn.run(app, host=args.host, port=args.port)
