@@ -1,14 +1,22 @@
 from fastapi import FastAPI, HTTPException, Depends
 import httpx
-from api_gateway.models.resource_usage import ResourceUsage
+from models.resource_usage import ResourceUsage
 from models.specs import Specs
 from models.resources import Resources
 from models.service import Service
+
+import sys
+import os
+# Add the parent directory to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage_interface.storage_service_wrapper import EtcdStorage, StorageService
+# from ..storage_interface.storage_service_wrapper import EtcdStorage, StorageService
+
 from typing import Dict, Optional, List
 import uvicorn
 import json
 import argparse
+
 
 app = FastAPI(title="Container Management API")
 storage_client = None

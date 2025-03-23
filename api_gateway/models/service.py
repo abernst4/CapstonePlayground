@@ -2,15 +2,15 @@ from pydantic import BaseModel
 from models.resources import Resources
 
 class Service(BaseModel):
-    job_id: str
+    service_name: str
     image_url: str
     number_of_replicas: int
     requested_resources: Resources
 
-    # Getter for job_id.
+    # Getter for service_name.
     @property
-    def get_job_id(self) -> str:
-        return self.job_id
+    def get_service_name(self) -> str:
+        return self.service_name
 
     # Getter for image_url.
     @property
@@ -40,7 +40,7 @@ class Service(BaseModel):
 # Example usage
 if __name__ == '__main__':
     sample_data = {
-        "job_id": "1234",
+        "service_name": "1234",
         "image_url": "//dkfkfngfngngfj",
         "number_of_replicas": 8,
         "requested_resources": {
@@ -50,11 +50,11 @@ if __name__ == '__main__':
         }
     }
 
-    # Create an instance of JobDeployed from a dictionary.
+    # Create an instance of Service from a dictionary.
     service = Service.from_dict(sample_data)
 
     # Access the fields using the getter properties.
-    print("Job ID:", service.get_job_id)
+    print("Service Name:", service.get_service_name)
     print("Image URL:", service.get_image_url)
     print("Number of Replicas:", service.get_number_of_replicas)
     print("Requested Resources:", service.get_requested_resources)

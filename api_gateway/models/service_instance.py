@@ -37,7 +37,7 @@ if __name__ == '__main__':
     sample_data = {
         "unique_id": "1234-worker1-1",
         "status": "deployed",
-        "job_id": "1234",
+        "service_name": "1234",
         "image_url": "//dkfkfngfngngfj",
         "number_of_replicas": 8,
         "requested_resources": {
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     # Access the fields using the getter properties.
     print("Unique ID:", service.get_unique_id)
     print("Status:", service.get_status)
-    print("Job ID:", service.get_job_id)
+    print("Service Name:", service.get_service_name)
     print("Image URL:", service.get_image_url)
     print("Number of Replicas:", service.get_number_of_replicas)
     print("Requested Resources:", service.get_requested_resources)
